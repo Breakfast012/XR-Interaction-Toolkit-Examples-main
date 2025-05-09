@@ -1,27 +1,30 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Interactors;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Movement;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Turning;
 
-public class ViewSwitcher : MonoBehaviour
+public class ViewSwitcherSingleCamera : MonoBehaviour
 {
-    [Header("References")]
-    public GameObject ghostRig;                // Ghost 模式的飞行器
-    public Camera ghostCamera;                 // Ghost 模式的观察相机
-    public GameObject xrOrigin;                // XR Origin 本体，用于角色控制
-    public Camera xrCamera;                    // XR 模式主相机（Main Camera）
-
-    [Header("Providers")]
-    public ContinuousMoveProvider moveProvider; // XR Origin 上的移动组件
-    public ContinuousTurnProvider turnProvider; // XR Origin 上的转向组件
+    [Header("XR Origin & Controllers")]
+    public GameObject xrOrigin;                      // 场景中唯一 XR Origin
+    public GameObject leftController;
+    public GameObject rightController;
+    public ContinuousTurnProvider turnProvider;
 
     [Header("Input")]
-    public InputActionProperty switchAction;    // 视角切换按钮（如 XRI RightHand Secondary）
+    public InputActionProperty switchAction;         // 切换按钮，如 XRI RightHand Secondary
 
+    // 保存 FP 起始点
+    private Vector3 initialPosition;
+    private Quaternion initialRotation;
     private bool isGhost = false;
+
+    void Awake()
+    {
+        
+    }
 
     void OnEnable()
     {
@@ -35,18 +38,61 @@ public class ViewSwitcher : MonoBehaviour
 
     void Update()
     {
-        if (switchAction.action.WasPressedThisFrame())
+        if (!switchAction.action.WasPressedThisFrame())
+            return;
+
+        isGhost = !isGhost;
+
+        Debug.Log($"[Switcher] Switching to {(isGhost ? "Ghost" : "FirstPerson")} Mode");
+
+        if (isGhost)
         {
-            isGhost = !isGhost;
+            // 记录初始 FP 位置与朝向
+            initialPosition = xrOrigin.transform.position;
+            initialRotation = xrOrigin.transform.rotation;
+            // 启动 GhostFly
+            xrOrigin.GetComponent<GhostFlyControl2>().enabled = true;
 
-            // 切换 GhostRig 和相机渲染
-            ghostRig.SetActive(isGhost);
-            ghostCamera.enabled = isGhost;
-            xrCamera.enabled = !isGhost;
+            // 显式启用 InputAction
+            xrOrigin.GetComponent<GhostFlyControl2>().moveAction.action.Enable();
+            xrOrigin.GetComponent<GhostFlyControl2>().upDownAction.action.Enable();
 
-            // 只启用/禁用角色移动和旋转
-            moveProvider.enabled = !isGhost;
-            turnProvider.enabled = !isGhost;
+            turnProvider.enabled = false;
+            leftController.SetActive(false);
+            rightController.SetActive(false);
+
+            Debug.Log("[Switcher] Now in Ghost mode.");
+        }
+        else
+        {
+            // 复位位置 + 禁用 GhostFly
+            xrOrigin.GetComponent<GhostFlyControl2>().enabled = false;
+            xrOrigin.GetComponent<GhostFlyControl2>().moveAction.action.Disable();
+            xrOrigin.GetComponent<GhostFlyControl2>().upDownAction.action.Disable();
+
+            xrOrigin.transform.position = initialPosition;
+            xrOrigin.transform.rotation = initialRotation;
+
+            turnProvider.enabled = true;
+            leftController.SetActive(true);
+            rightController.SetActive(true);
+
+            Debug.Log("[Switcher] Now in FP mode.");
         }
     }
 }
+
+/*
+使用说明：
+1. 在 XR Origin 根节点上挂载 GhostFlyControl 和 ViewSwitcherSingleCamera。
+2. 将 GhostFlyControl 默认禁用，Inspector 绑定 moveAction, upDownAction, headReference。
+3. 在 ViewSwitcherSingleCamera Inspector 中：
+   - xrOrigin 拖入 XR Origin
+   - moveProvider/turnProvider 绑定 XR Origin 上的对应组件
+   - leftInteractor/rightInteractor 绑定 XR Origin 下手柄的 XRRayInteractor
+   - switchAction 绑定右手 Secondary Button
+4. Play 时：
+   - 默认 FP 模式，GhostFlyControl disabled
+   - 按下切换键：进入 Ghost 模式，冻结交互，启用 GhostFlyControl 即可飞行
+   - 再次按键：恢复 FP 模式，回到初始位置，禁用 GhostFlyControl
+*/
